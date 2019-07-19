@@ -23,8 +23,8 @@ class Model:
 
 	def __init__(self, charList, decoderType=DecoderType.BestPath, mustRestore=False, dump=False):
 		"init model: add CNN, RNN and CTC and initialize TF"
-		self.dump = dump
-		self.charList = charList
+		self.dump = dump # write output of NN to CSV file
+		self.charList = charList # symbols of dictionary
 		self.decoderType = decoderType
 		self.mustRestore = mustRestore
 		self.snapID = 0
@@ -32,7 +32,7 @@ class Model:
 		# Whether to use normalization over a batch or a population
 		self.is_train = tf.placeholder(tf.bool, name='is_train')
 
-		# input image batch
+		# input image batch: [batchSize, W=128, H=32]
 		self.inputImgs = tf.placeholder(tf.float32, shape=(None, Model.imgSize[0], Model.imgSize[1]))
 
 		# setup CNN, RNN and CTC
@@ -42,49 +42,70 @@ class Model:
 
 		# setup optimizer to train NN
 		self.batchesTrained = 0
-		self.learningRate = tf.placeholder(tf.float32, shape=[])
-		self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS) 
+		self.learningRate = tf.placeholder(tf.float32, shape=[]) # variable for list of learning rates
+		# get_collection - Returns a list of values in the collection with the given name.
+		# GraphKeys class contains many standard names for collections.
+		self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)  # UPDATE_OPS - ???
+		# control_dependencies - Returns a context manager that specifies control dependencies.
+		# So, only when self.update_ops are executed ops under 'with' will be executed
 		with tf.control_dependencies(self.update_ops):
+			# minimize - combines calls compute_gradients() and apply_gradients().
+			# compute_gradients() - Compute gradients of loss for the variable. It returns a list of (gradient, variable) pairs
+			# apply_gradients() - Apply gradients to variables.  It returns an Operation that applies gradients.
 			self.optimizer = tf.train.RMSPropOptimizer(self.learningRate).minimize(self.loss)
-
+			# TODO: Change RMSPropOptimizer to Adam 
+			
 		# initialize TF
 		(self.sess, self.saver) = self.setupTF()
 
 			
 	def setupCNN(self):
 		"create CNN layers and return output of these layers"
+		# expand dimensions of image [?, W, H] -> [?, W, H, 1]
 		cnnIn4d = tf.expand_dims(input=self.inputImgs, axis=3)
 
 		# list of parameters for the layers
-		kernelVals = [5, 5, 3, 3, 3]
-		featureVals = [1, 32, 64, 128, 128, 256]
-		strideVals = poolVals = [(2,2), (2,2), (1,2), (1,2), (1,2)]
+		kernelVals = [5, 5, 3, 3, 3] # kernel sizes
+		featureVals = [1, 32, 64, 128, 128, 256] # number of kernels in each layer
+		strideVals = poolVals = [(2,2), (2,2), (1,2), (1,2), (1,2)] # for max-pooling layer
 		numLayers = len(strideVals)
 
 		# create layers
-		pool = cnnIn4d # input to first CNN layer
+		pool = cnnIn4d # input to first CNN layer [batchSize, W, H, 1]
 		for i in range(numLayers):
+			# init kernel with random numbers from a truncated normal distribution, 
+			# shape=[kernelWidth, kernelHeight, kernelDepth, numOfKernels]
 			kernel = tf.Variable(tf.truncated_normal([kernelVals[i], kernelVals[i], featureVals[i], featureVals[i + 1]], stddev=0.1))
 			conv = tf.nn.conv2d(pool, kernel, padding='SAME',  strides=(1,1,1,1))
+			# Normalizes a tensor by mean and variance
+			# training - Whether to return the output in training mode (normalized with statistics of the current batch) 
+			# or in inference mode (normalized with moving statistics).
 			conv_norm = tf.layers.batch_normalization(conv, training=self.is_train)
 			relu = tf.nn.relu(conv_norm)
+			# (2)ksize: list of ints that has length 1, 2 or 4. The size of the window for each dimension of the input tensor.
+			# (3)strides: list of ints that has length 1, 2 or 4. The stride of the sliding window for each dimension of the input tensor.
+			# (4)padding: A string, either 'VALID' or 'SAME'. The padding algorithm.
 			pool = tf.nn.max_pool(relu, (1, poolVals[i][0], poolVals[i][1], 1), (1, strideVals[i][0], strideVals[i][1], 1), 'VALID')
-
+		# Returns: The max pooled output tensor, size = [batchSize, W=32, H=1, D=256]
 		self.cnnOut4d = pool
 
 
 	def setupRNN(self):
 		"create RNN layers and return output of these layers"
+		# squeeze - Removes dimensions of size 1 from the shape of a tensor.
+		# From CNN output [batchSize, W=32, H=1, D=256] -> [batchSize, 32, 256]
 		rnnIn3d = tf.squeeze(self.cnnOut4d, axis=[2])
 
 		# basic cells which is used to build RNN
 		numHidden = 256
+		# Create list of 2 LSTM recurrent network simple cells
 		cells = [tf.contrib.rnn.LSTMCell(num_units=numHidden, state_is_tuple=True) for _ in range(2)] # 2 layers
 
-		# stack basic cells
+		# Stack basic cells into one MultiRNNCell
 		stacked = tf.contrib.rnn.MultiRNNCell(cells, state_is_tuple=True)
 
-		# bidirectional RNN
+		# Creates a dynamic version of bidirectional recurrent neural network
+		# Returns a tuple (output_state_fw, output_state_bw) containing the forward and the backward final states of bidirectional rnn.
 		# BxTxF -> BxTx2H
 		((fw, bw), _) = tf.nn.bidirectional_dynamic_rnn(cell_fw=stacked, cell_bw=stacked, inputs=rnnIn3d, dtype=rnnIn3d.dtype)
 									
@@ -93,6 +114,7 @@ class Model:
 									
 		# project output to chars (including blank): BxTx1x2H -> BxTx1xC -> BxTxC
 		kernel = tf.Variable(tf.truncated_normal([1, 1, numHidden * 2, len(self.charList) + 1], stddev=0.1))
+		# Atrous convolution (a.k.a. convolution with holes or dilated convolution).
 		self.rnnOut3d = tf.squeeze(tf.nn.atrous_conv2d(value=concat, filters=kernel, rate=1, padding='SAME'), axis=[2])
 		
 
@@ -134,11 +156,13 @@ class Model:
 		print('Python: '+sys.version)
 		print('Tensorflow: '+tf.__version__)
 
-		sess=tf.Session() # TF session
-
-		saver = tf.train.Saver(max_to_keep=1) # saver saves model to file
-		modelDir = '../model/'
-		latestSnapshot = tf.train.latest_checkpoint(modelDir) # is there a saved model?
+		sess=tf.Session() # create TF session
+		# Saver - saves model to file. 
+		# max_to_keep - indicates the maximum number of recent checkpoint files to keep. As new files are created, older files are deleted.
+		saver = tf.train.Saver(max_to_keep=1) 
+		modelDir = '../model/' # dir, where to store saved model
+		# latest_checkpoint - Finds the filename of latest saved checkpoint file.
+		latestSnapshot = tf.train.latest_checkpoint(modelDir)
 
 		# if model must be restored (for inference), there must be a snapshot
 		if self.mustRestore and not latestSnapshot:
@@ -149,6 +173,7 @@ class Model:
 			print('Init with stored values from ' + latestSnapshot)
 			saver.restore(sess, latestSnapshot)
 		else:
+			# init all variables
 			print('Init with new values')
 			sess.run(tf.global_variables_initializer())
 
