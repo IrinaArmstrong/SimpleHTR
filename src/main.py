@@ -12,11 +12,11 @@ from SamplePreprocessor import preprocess
 
 class FilePaths:
 	"filenames and paths to data"
-	fnCharList = '../model/charList.txt'
-	fnAccuracy = '../model/accuracy.txt'
-	fnTrain = '../data/'
-	fnInfer = '../data/test.png'
-	fnCorpus = '../data/corpus.txt'
+	fnCharList = '../model/charList.txt' # symbols of dictionary
+	fnAccuracy = '../model/accuracy.txt' # to write accuracy of NN
+	fnTrain = '../data/' # place to store training data
+	fnInfer = '../data/test.png' # place/img to store testing data
+	fnCorpus = '../data/corpus.txt' # corpus of words used
 
 
 def train(model, loader):
@@ -25,11 +25,15 @@ def train(model, loader):
 	bestCharErrorRate = float('inf') # best valdiation character error rate
 	noImprovementSince = 0 # number of epochs no improvement of character error rate occured
 	earlyStopping = 5 # stop training after this number of epochs without improvement
+	
+	# Endless cycle for training, only ends when no improvement of character 
+	# error rate occured more then number of epochs chosen for early stopping
 	while True:
+		# Count epochs
 		epoch += 1
 		print('Epoch:', epoch)
 
-		# train
+		# Train
 		print('Train NN')
 		loader.trainSet()
 		while loader.hasNext():

@@ -18,6 +18,7 @@ class Sample:
 class Batch:
 	"batch containing images and ground truth texts"
 	def __init__(self, gtTexts, imgs):
+		# Stack images over first axis 
 		self.imgs = np.stack(imgs, axis=0)
 		self.gtTexts = gtTexts
 
@@ -27,24 +28,28 @@ class DataLoader:
 
 	def __init__(self, filePath, batchSize, imgSize, maxTextLen):
 		"loader for dataset at given location, preprocess images and text according to parameters"
-
+		# Check if filePath ends with '/' (e.t. it's a dir)
 		assert filePath[-1]=='/'
 
-		self.dataAugmentation = False
-		self.currIdx = 0
-		self.batchSize = batchSize
+		self.dataAugmentation = False # enble dataAugmentation function
+		self.currIdx = 0 #
+		self.batchSize = batchSize # number of images in single batch
 		self.imgSize = imgSize
-		self.samples = []
+		self.samples = [] # 
 	
-		f=open(filePath+'words.txt')
+		# Open file with iam database word information
+		f = open(filePath + 'words.txt')
 		chars = set()
+		# ???
 		bad_samples = []
 		bad_samples_reference = ['a01-117-05-02.png', 'r06-022-03-05.png']
+		
 		for line in f:
 			# ignore comment line
 			if not line or line[0]=='#':
 				continue
-			
+			# strip() - deletes blank chars from the beginning and end of string, returns copy of string
+			# split() - splits str into some other strings separated
 			lineSplit = line.strip().split(' ')
 			assert len(lineSplit) >= 9
 			
