@@ -29,20 +29,22 @@ class DataLoader:
 	def __init__(self, filePath, batchSize, imgSize, maxTextLen):
 		"loader for dataset at given location, preprocess images and text according to parameters"
 		# Check if filePath ends with '/' (e.t. it's a dir)
+		# by default = ../data/
 		assert filePath[-1]=='/'
 
 		self.dataAugmentation = False # enble dataAugmentation function
 		self.currIdx = 0 #
 		self.batchSize = batchSize # number of images in single batch
 		self.imgSize = imgSize
-		self.samples = [] # 
+		self.samples = [] # list of samples of dataset (general truth + imgFileName)
 	
 		# Open file with iam database word information
 		f = open(filePath + 'words.txt')
-		chars = set()
-		# ???
-		bad_samples = []
-		bad_samples_reference = ['a01-117-05-02.png', 'r06-022-03-05.png']
+		chars = set() # list of chars, used in texts
+		
+		# bad samples = empty/wrongly separated images
+		bad_samples = [] # If some images found to be damaged
+		bad_samples_reference = ['a01-117-05-02.png', 'r06-022-03-05.png'] # Damaged images expected
 		
 		for line in f:
 			# ignore comment line
@@ -51,15 +53,17 @@ class DataLoader:
 			# strip() - deletes blank chars from the beginning and end of string, returns copy of string
 			# split() - splits str into some other strings separated
 			lineSplit = line.strip().split(' ')
+			# it must be more then 9 substrings
 			assert len(lineSplit) >= 9
 			
 			# filename: part1-part2-part3 --> part1/part1-part2/part1-part2-part3.png
+			# Example: a01-117-05-02.png
 			fileNameSplit = lineSplit[0].split('-')
 			fileName = filePath + 'words/' + fileNameSplit[0] + '/' + fileNameSplit[0] + '-' + fileNameSplit[1] + '/' + lineSplit[0] + '.png'
 
 			# GT text are columns starting at 9
-			gtText = self.truncateLabel(' '.join(lineSplit[8:]), maxTextLen)
-			chars = chars.union(set(list(gtText)))
+			gtText = self.truncateLabel(' '.join(lineSplit[8:]), maxTextLen) # ???
+			chars = chars.union(set(list(gtText))) # Make list of chars, used in texts 
 
 			# check if image is not empty
 			if not os.path.getsize(fileName):
@@ -103,6 +107,7 @@ class DataLoader:
 				cost += 2
 			else:
 				cost += 1
+			# cropp text if it is longer then maxTextLen
 			if cost > maxTextLen:
 				return text[:i]
 		return text
@@ -111,15 +116,15 @@ class DataLoader:
 	def trainSet(self):
 		"switch to randomly chosen subset of training set"
 		self.dataAugmentation = True
-		self.currIdx = 0
-		random.shuffle(self.trainSamples)
-		self.samples = self.trainSamples[:self.numTrainSamplesPerEpoch]
+		self.currIdx = 0 # reset index
+		random.shuffle(self.trainSamples) # mix samples
+		self.samples = self.trainSamples[:self.numTrainSamplesPerEpoch] # get first 25000 of them
 
 	
 	def validationSet(self):
 		"switch to validation set"
 		self.dataAugmentation = False
-		self.currIdx = 0
+		self.currIdx = 0 # reset index
 		self.samples = self.validationSamples
 
 
@@ -129,12 +134,12 @@ class DataLoader:
 
 
 	def hasNext(self):
-		"iterator"
+		"true - if iterator has next element, else - false"
 		return self.currIdx + self.batchSize <= len(self.samples)
 		
 		
 	def getNext(self):
-		"iterator"
+		"iterator gets next batch samples addresses, then load and preprocess images"
 		batchRange = range(self.currIdx, self.currIdx + self.batchSize)
 		gtTexts = [self.samples[i].gtText for i in batchRange]
 		imgs = [preprocess(cv2.imread(self.samples[i].filePath, cv2.IMREAD_GRAYSCALE), self.imgSize, self.dataAugmentation) for i in batchRange]
